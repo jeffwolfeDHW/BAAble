@@ -73,13 +73,13 @@ export type SignatureStatus = 'fully-executed' | 'pending' | 'unsigned';
 /**
  * Status of agreement
  */
-export type AgreementStatus = 'active' | 'expired' | 'draft';
+export type AgreementStatus = 'active' | 'expired' | 'draft' | 'terminated';
 
 /**
  * Main Agreement entity
  */
 export interface Agreement {
-  id: number;
+  id: string | number;
   name: string;
   type: AgreementType;
   /** Name of the counterparty organization */
@@ -110,7 +110,7 @@ export interface Agreement {
  * Team member with access control
  */
 export interface TeamMember {
-  id: number;
+  id: string | number;
   name: string;
   email: string;
   role: UserRole;
@@ -150,7 +150,7 @@ export interface NewAgreement {
 /**
  * Navigation tabs in the application
  */
-export type TabId = 'dashboard' | 'agreements' | 'compliance' | 'team' | 'templates';
+export type TabId = 'dashboard' | 'agreements' | 'compliance' | 'team' | 'templates' | 'login' | 'signup' | 'forgot-password';
 
 /**
  * API response wrapper
@@ -161,3 +161,24 @@ export interface ApiResponse<T> {
   error?: string;
   message?: string;
 }
+
+/**
+ * Re-export database types for convenient access throughout the application
+ */
+export type {
+  Profile,
+  Organization,
+  OrgMember,
+  AgreementRow,
+  ComplianceTermsRow,
+  AgreementVersionRow,
+  AgreementDocumentRow,
+  ExtractionResultRow,
+  TeamMemberRow,
+  SignatureRequestRow,
+  ComplianceTemplateRow,
+  AuditLogRow,
+  AgreementWithTerms,
+} from '@/lib/database.types';
+
+export type { Database } from '@/lib/database.types';

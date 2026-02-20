@@ -11,6 +11,7 @@ interface StatCardProps {
   value: number | string;
   icon: LucideIcon;
   colorClass: string;
+  isLoading?: boolean;
 }
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, colorClass }) => {

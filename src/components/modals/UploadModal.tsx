@@ -1,10 +1,10 @@
 /**
  * UploadModal - Modal for uploading and creating new agreements
- * Handles file upload with extraction progress and manual form entry
+ * Handles real file upload with validation, preview, extraction progress, and form validation
  */
 
 import React, { useState, useRef } from 'react';
-import { Upload, CheckCircle } from 'lucide-react';
+import { Upload, FileText, X, Check, AlertCircle, Loader2 } from 'lucide-react';
 import Modal from '../ui/Modal';
 import { NewAgreement } from '@/types/index';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -14,30 +14,43 @@ import { useAuth } from '@/context/AuthContext';
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
+  templateTerms?: Partial<NewAgreement>;
 }
 
-const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
+const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, templateTerms }) => {
   const { currentUser } = useAuth();
-  const { addAgreement } = useAgreements();
-  const { uploadedFileName, uploadingFile, extractionProgress, handleFileUpload, resetUpload } =
-    useFileUpload();
+  const { addAgreement, isLoading: contextLoading } = useAgreements();
+  const {
+    fileName,
+    fileSize,
+    fileType,
+    uploadingFile,
+    extractionProgress,
+    extractedData,
+    error: uploadError,
+    handleFileUpload,
+    resetUpload,
+  } = useFileUpload();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form state
+  // Form state with template pre-fill
   const [formData, setFormData] = useState<NewAgreement>({
-    name: '',
-    type: 'covered-entity',
-    counterparty: '',
-    effectiveDate: '',
-    expirationDate: '',
-    breachNotification: 24,
-    auditRights: true,
-    subcontractorApproval: 'required',
-    dataRetention: '7 years',
-    terminationNotice: 30,
-    emailAlerts: true,
+    name: templateTerms?.name || '',
+    type: templateTerms?.type || 'covered-entity',
+    counterparty: templateTerms?.counterparty || '',
+    effectiveDate: templateTerms?.effectiveDate || '',
+    expirationDate: templateTerms?.expirationDate || '',
+    breachNotification: templateTerms?.breachNotification || 24,
+    auditRights: templateTerms?.auditRights ?? true,
+    subcontractorApproval: templateTerms?.subcontractorApproval || 'required',
+    dataRetention: templateTerms?.dataRetention || '7 years',
+    terminationNotice: templateTerms?.terminationNotice || 30,
+    emailAlerts: templateTerms?.emailAlerts ?? true,
   });
+
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   /**
    * Handle file upload from input
@@ -66,7 +79,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
     e.preventDefault();
     e.stopPropagation();
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.match(/\.pdf|\.docx|\.doc/)) {
+    if (file) {
       handleFileUpload(file, (extractedData) => {
         setFormData((prev) => ({
           ...prev,
@@ -89,20 +102,71 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
       ...prev,
       [name]: isCheckbox ? (e.target as HTMLInputElement).checked : value,
     }));
+
+    // Clear validation error for this field
+    if (validationErrors[name]) {
+      setValidationErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
+  /**
+   * Validate form data
+   */
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.name.trim()) {
+      errors.name = 'Agreement name is required';
+    }
+
+    if (!formData.counterparty.trim()) {
+      errors.counterparty = 'Counterparty name is required';
+    }
+
+    if (formData.effectiveDate && formData.expirationDate) {
+      if (new Date(formData.effectiveDate) >= new Date(formData.expirationDate)) {
+        errors.expirationDate = 'Expiration date must be after effective date';
+      }
+    }
+
+    if (formData.breachNotification < 1) {
+      errors.breachNotification = 'Breach notification hours must be at least 1';
+    }
+
+    if (formData.terminationNotice < 1) {
+      errors.terminationNotice = 'Termination notice must be at least 1 day';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   /**
    * Handle form submission
    */
-  const handleSubmit = () => {
-    if (!formData.name || !formData.counterparty) {
-      alert('Please fill in all required fields');
+  const handleSubmit = async () => {
+    if (!validateForm()) {
       return;
     }
 
-    addAgreement(formData, currentUser.name);
-    resetForm();
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await addAgreement(formData, currentUser.name);
+      console.log('Agreement created successfully');
+      resetForm();
+      onClose();
+    } catch (error) {
+      console.error('Error creating agreement:', error);
+      setValidationErrors({
+        submit: error instanceof Error ? error.message : 'Failed to create agreement',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   /**
@@ -110,18 +174,19 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
    */
   const resetForm = () => {
     setFormData({
-      name: '',
-      type: 'covered-entity',
-      counterparty: '',
-      effectiveDate: '',
-      expirationDate: '',
-      breachNotification: 24,
-      auditRights: true,
-      subcontractorApproval: 'required',
-      dataRetention: '7 years',
-      terminationNotice: 30,
-      emailAlerts: true,
+      name: templateTerms?.name || '',
+      type: templateTerms?.type || 'covered-entity',
+      counterparty: templateTerms?.counterparty || '',
+      effectiveDate: templateTerms?.effectiveDate || '',
+      expirationDate: templateTerms?.expirationDate || '',
+      breachNotification: templateTerms?.breachNotification || 24,
+      auditRights: templateTerms?.auditRights ?? true,
+      subcontractorApproval: templateTerms?.subcontractorApproval || 'required',
+      dataRetention: templateTerms?.dataRetention || '7 years',
+      terminationNotice: templateTerms?.terminationNotice || 30,
+      emailAlerts: templateTerms?.emailAlerts ?? true,
     });
+    setValidationErrors({});
     resetUpload();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -136,25 +201,39 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
     onClose();
   };
 
+  /**
+   * Format file size for display
+   */
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  };
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
       title="Add New Agreement"
       subtitle="Upload a document or enter details manually"
-      maxWidth="max-w-3xl"
+      maxWidth="max-w-4xl"
       footer={
         <>
           <button
             onClick={handleClose}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+            disabled={isSubmitting || contextLoading}
+            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+            disabled={isSubmitting || contextLoading || uploadingFile}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
           >
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
             Add Agreement
           </button>
         </>
@@ -164,6 +243,12 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
         {/* File Upload Section */}
         <div className="space-y-3">
           <h3 className="font-semibold text-gray-900">Upload Document</h3>
+          {uploadError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{uploadError}</p>
+            </div>
+          )}
           <div
             onClick={() => fileInputRef.current?.click()}
             onDragOver={handleDragOver}
@@ -177,6 +262,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
               onChange={handleFileInputChange}
               className="hidden"
               aria-label="Upload agreement document"
+              disabled={uploadingFile}
             />
             <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="text-sm text-gray-600">
@@ -186,10 +272,26 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
             </p>
           </div>
 
+          {/* File Preview */}
+          {fileName && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
+              <FileText className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-900">{fileName}</p>
+                <p className="text-xs text-blue-600 mt-1">
+                  {fileSize && `Size: ${formatFileSize(fileSize)}`}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Upload Progress */}
           {uploadingFile && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Extracting data...</p>
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                <p className="text-sm font-medium text-gray-700">Extracting data...</p>
+              </div>
               <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-gradient-to-r from-indigo-600 to-purple-600 h-full transition-all duration-300"
@@ -201,12 +303,14 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
           )}
 
           {/* Success Message */}
-          {extractionProgress === 100 && !uploadingFile && uploadedFileName && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+          {extractionProgress === 100 && !uploadingFile && extractedData && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+              <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-green-900">Data extracted successfully</p>
-                <p className="text-xs text-green-700">{uploadedFileName}</p>
+                <p className="text-xs text-green-600 mt-1">
+                  Fields have been pre-filled from the uploaded document
+                </p>
               </div>
             </div>
           )}
@@ -226,8 +330,15 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
                 value={formData.name}
                 onChange={handleInputChange}
                 placeholder="e.g., Acme Healthcare BAA"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
+                  validationErrors.name ? 'border-red-500' : 'border-gray-300'
+                }`}
               />
+              {validationErrors.name && (
+                <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" /> {validationErrors.name}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -257,8 +368,15 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
                   value={formData.counterparty}
                   onChange={handleInputChange}
                   placeholder="Organization name"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
+                    validationErrors.counterparty ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {validationErrors.counterparty && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {validationErrors.counterparty}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -285,18 +403,26 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
                   name="expirationDate"
                   value={formData.expirationDate}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
+                    validationErrors.expirationDate ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {validationErrors.expirationDate && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {validationErrors.expirationDate}
+                  </p>
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Compliance Terms Section */}
+        {/* Compliance Terms Section - Two Column Layout */}
         <div className="space-y-3">
           <h3 className="font-semibold text-gray-900">Compliance Terms</h3>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            {/* Left Column */}
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Breach Notification Hours
@@ -307,10 +433,48 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
                   value={formData.breachNotification}
                   onChange={handleInputChange}
                   min="1"
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
+                    validationErrors.breachNotification ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {validationErrors.breachNotification && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {validationErrors.breachNotification}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Data Retention
+                </label>
+                <input
+                  type="text"
+                  name="dataRetention"
+                  value={formData.dataRetention}
+                  onChange={handleInputChange}
+                  placeholder="e.g., 7 years"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
                 />
               </div>
 
+              <div className="flex items-center gap-3 pt-2">
+                <input
+                  type="checkbox"
+                  id="auditRights"
+                  name="auditRights"
+                  checked={formData.auditRights}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                />
+                <label htmlFor="auditRights" className="text-sm font-medium text-gray-700">
+                  Includes Audit Rights
+                </label>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Subcontractor Approval
@@ -326,65 +490,52 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose }) => {
                   <option value="not-applicable">Not Applicable</option>
                 </select>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Data Retention
-              </label>
-              <input
-                type="text"
-                name="dataRetention"
-                value={formData.dataRetention}
-                onChange={handleInputChange}
-                placeholder="e.g., 7 years, Until service termination"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Termination Notice (Days)
+                </label>
+                <input
+                  type="number"
+                  name="terminationNotice"
+                  value={formData.terminationNotice}
+                  onChange={handleInputChange}
+                  min="1"
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
+                    validationErrors.terminationNotice ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {validationErrors.terminationNotice && (
+                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {validationErrors.terminationNotice}
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Termination Notice (Days)
-              </label>
-              <input
-                type="number"
-                name="terminationNotice"
-                value={formData.terminationNotice}
-                onChange={handleInputChange}
-                min="1"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="auditRights"
-                name="auditRights"
-                checked={formData.auditRights}
-                onChange={handleInputChange}
-                className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-              />
-              <label htmlFor="auditRights" className="text-sm font-medium text-gray-700">
-                Includes Audit Rights
-              </label>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="emailAlerts"
-                name="emailAlerts"
-                checked={formData.emailAlerts}
-                onChange={handleInputChange}
-                className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
-              />
-              <label htmlFor="emailAlerts" className="text-sm font-medium text-gray-700">
-                Enable Email Alerts
-              </label>
+              <div className="flex items-center gap-3 pt-2">
+                <input
+                  type="checkbox"
+                  id="emailAlerts"
+                  name="emailAlerts"
+                  checked={formData.emailAlerts}
+                  onChange={handleInputChange}
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-2 focus:ring-indigo-500"
+                />
+                <label htmlFor="emailAlerts" className="text-sm font-medium text-gray-700">
+                  Enable Email Alerts
+                </label>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Form Submission Error */}
+        {validationErrors.submit && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700">{validationErrors.submit}</p>
+          </div>
+        )}
       </div>
     </Modal>
   );

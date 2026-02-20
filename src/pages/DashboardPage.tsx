@@ -1,9 +1,9 @@
 /**
- * DashboardPage - Main dashboard showing key metrics and recent agreements
- * Displays stats cards, compliance alerts, and recent agreements overview
+ * DashboardPage - Main dashboard showing key metrics, recent activity, and expiring agreements
+ * Real CRUD-ready dashboard with action buttons and data-driven content
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FileText,
   CheckCircle,
@@ -13,6 +13,10 @@ import {
   History,
   ChevronDown,
   ChevronUp,
+  Plus,
+  TrendingUp,
+  Clock,
+  Zap,
 } from 'lucide-react';
 import StatCard from '@/components/ui/StatCard';
 import Badge from '@/components/ui/Badge';
@@ -23,28 +27,52 @@ import {
   getAgreementTypeLabel,
   getAgreementTypeColor,
   formatDate,
-  getSignatureStatusColor,
+  daysUntilDate,
 } from '@/utils/agreement-helpers';
-import { Agreement } from '@/types/index';
+import { Agreement, TabId } from '@/types/index';
 
 interface DashboardPageProps {
   onSelectAgreement: (agreement: Agreement) => void;
+  onNewAgreement?: () => void;
+  onNavigate?: (tab: TabId) => void;
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ onSelectAgreement }) => {
-  const { agreements } = useAgreements();
+const DashboardPage: React.FC<DashboardPageProps> = ({
+  onSelectAgreement,
+  onNewAgreement,
+  onNavigate,
+}) => {
+  const { agreements, isLoading } = useAgreements();
   const { teamMembers } = useTeam();
   const { issues, criticalCount, warningCount, hasIssues } = useComplianceAnalysis(agreements);
   const [showComplianceDetails, setShowComplianceDetails] = useState(false);
 
   // Calculate stats
-  const totalAgreements = agreements.length;
+  const draftCount = agreements.filter((a) => a.status === 'draft').length;
   const activeAgreements = agreements.filter((a) => a.status === 'active').length;
   const totalIssues = criticalCount + warningCount;
   const teamMemberCount = teamMembers.filter((m) => m.status === 'active').length;
 
-  // Get first 3 recent agreements
-  const recentAgreements = agreements.slice(0, 3);
+  // Get last 5 recent agreements (sorted by upload date)
+  const recentAgreements = useMemo(() => {
+    return [...agreements]
+      .sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime())
+      .slice(0, 5);
+  }, [agreements]);
+
+  // Get agreements expiring within 90 days
+  const expiringAgreements = useMemo(() => {
+    const now = new Date();
+    const ninetyDaysFromNow = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+    return agreements
+      .filter((a) => {
+        const expDate = new Date(a.expirationDate);
+        return expDate > now && expDate <= ninetyDaysFromNow;
+      })
+      .sort((a, b) => new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime())
+      .slice(0, 5);
+  }, [agreements]);
 
   return (
     <div className="space-y-6">
@@ -52,28 +80,60 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onSelectAgreement }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Agreements"
-          value={totalAgreements}
+          value={agreements.length}
           icon={FileText}
           colorClass="bg-indigo-500"
+          isLoading={isLoading}
         />
         <StatCard
           title="Active BAAs"
           value={activeAgreements}
           icon={CheckCircle}
           colorClass="bg-green-500"
+          isLoading={isLoading}
+        />
+        <StatCard
+          title="Drafts"
+          value={draftCount}
+          icon={TrendingUp}
+          colorClass="bg-blue-500"
+          isLoading={isLoading}
         />
         <StatCard
           title="Compliance Issues"
           value={totalIssues}
           icon={AlertTriangle}
-          colorClass="bg-orange-500"
+          colorClass={totalIssues > 0 ? 'bg-orange-500' : 'bg-gray-500'}
+          isLoading={isLoading}
         />
-        <StatCard
-          title="Team Members"
-          value={teamMemberCount}
-          icon={Users}
-          colorClass="bg-purple-500"
-        />
+      </div>
+
+      {/* Quick Action Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {onNewAgreement && (
+          <button
+            onClick={onNewAgreement}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg p-4 flex items-center gap-3 transition-colors shadow hover:shadow-lg"
+          >
+            <Plus className="w-5 h-5" />
+            <div className="text-left">
+              <p className="font-semibold">New Agreement</p>
+              <p className="text-sm text-indigo-100">Create and upload a new BAA</p>
+            </div>
+          </button>
+        )}
+        {onNavigate && (
+          <button
+            onClick={() => onNavigate('compliance')}
+            className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-4 flex items-center gap-3 transition-colors shadow hover:shadow-lg"
+          >
+            <Zap className="w-5 h-5" />
+            <div className="text-left">
+              <p className="font-semibold">Run Compliance Check</p>
+              <p className="text-sm text-purple-100">View detailed analysis</p>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Compliance Alerts Section */}
@@ -84,7 +144,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onSelectAgreement }) => {
               <Bell className="w-6 h-6 text-orange-500" />
               <h2 className="text-lg font-bold text-gray-900">Compliance Alerts</h2>
               <Badge variant="orange" size="sm">
-                {totalIssues}
+                {criticalCount + warningCount}
               </Badge>
             </div>
             <button
@@ -105,9 +165,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onSelectAgreement }) => {
             </button>
           </div>
 
-          {/* Issues List */}
+          {/* Issues List - Show first 3 */}
           <div className="space-y-3">
-            {issues.map((issue, index) => {
+            {issues.slice(0, 3).map((issue, index) => {
               const isWarning = issue.type === 'warning';
               const bgColor = isWarning ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200';
               const iconColor = isWarning ? 'text-yellow-600' : 'text-red-600';
@@ -144,77 +204,154 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onSelectAgreement }) => {
                 </div>
               );
             })}
+            {issues.length > 3 && (
+              <p className="text-sm text-gray-600 text-center py-2">
+                And {issues.length - 3} more issues. View all in Compliance tab.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Expiring Soon Section */}
+      {expiringAgreements.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Clock className="w-6 h-6 text-yellow-600" />
+            <h2 className="text-lg font-bold text-gray-900">Expiring Soon (90 days)</h2>
+            <Badge variant="yellow" size="sm">
+              {expiringAgreements.length}
+            </Badge>
+          </div>
+
+          <div className="space-y-3">
+            {expiringAgreements.map((agreement) => {
+              const daysLeft = daysUntilDate(agreement.expirationDate);
+              const isUrgent = daysLeft <= 30;
+
+              return (
+                <div
+                  key={agreement.id}
+                  onClick={() => onSelectAgreement(agreement)}
+                  className={`p-4 border rounded-lg transition-all cursor-pointer ${
+                    isUrgent
+                      ? 'border-red-200 bg-red-50 hover:border-red-300 hover:shadow-md'
+                      : 'border-gray-200 hover:border-yellow-300 hover:shadow-md'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900">{agreement.name}</p>
+                      <p className="text-sm text-gray-600">{agreement.counterparty}</p>
+                    </div>
+                    <div className="text-right ml-4">
+                      <Badge
+                        variant={isUrgent ? 'red' : 'yellow'}
+                        size="sm"
+                        className="mb-1 inline-block"
+                      >
+                        {daysLeft} days
+                      </Badge>
+                      <p className="text-xs text-gray-500">
+                        Expires: {formatDate(agreement.expirationDate)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* Recent Agreements Section */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">Recent Agreements</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Recent Activity</h2>
 
-        <div className="space-y-3">
-          {recentAgreements.map((agreement) => {
-            const hasAlerts = issues.some((issue) =>
-              issue.affectedAgreements.includes(agreement.name)
-            );
-            const typeColor = getAgreementTypeColor(agreement.type);
-            const signatureColor = getSignatureStatusColor(agreement.signatureStatus);
+        {recentAgreements.length > 0 ? (
+          <div className="space-y-3">
+            {recentAgreements.map((agreement) => {
+              const typeColor = getAgreementTypeColor(agreement.type);
+              const isExecuted = agreement.signatureStatus === 'fully-executed';
+              const hasAlerts = issues.some((issue) =>
+                issue.affectedAgreements.includes(agreement.name)
+              );
 
-            return (
-              <div
-                key={agreement.id}
-                onClick={() => onSelectAgreement(agreement)}
-                className="p-4 border rounded-lg hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
-              >
-                <div className="flex items-start gap-3">
-                  <FileText className="w-5 h-5 text-gray-500 mt-1 flex-shrink-0" />
+              return (
+                <div
+                  key={agreement.id}
+                  onClick={() => onSelectAgreement(agreement)}
+                  className="p-4 border rounded-lg hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer"
+                >
+                  <div className="flex items-start gap-3">
+                    <FileText className="w-5 h-5 text-gray-500 mt-1 flex-shrink-0" />
 
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900">{agreement.name}</p>
-                    <p className="text-sm text-gray-600">{agreement.counterparty}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900">{agreement.name}</p>
+                      <p className="text-sm text-gray-600">{agreement.counterparty}</p>
 
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {/* Version Badge */}
-                      <div className="flex items-center gap-1 bg-gray-100 px-2.5 py-1 rounded text-xs text-gray-700 font-medium">
-                        <History className="w-3 h-3" />
-                        v{agreement.currentVersion}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {/* Type Badge */}
+                        <Badge variant={typeColor as any} size="sm">
+                          {getAgreementTypeLabel(agreement.type)}
+                        </Badge>
+
+                        {/* Status Badge */}
+                        <Badge
+                          variant={
+                            agreement.status === 'active'
+                              ? 'green'
+                              : agreement.status === 'draft'
+                                ? 'gray'
+                                : 'red'
+                          }
+                          size="sm"
+                        >
+                          {agreement.status.charAt(0).toUpperCase() + agreement.status.slice(1)}
+                        </Badge>
+
+                        {/* Signature Status */}
+                        {!isExecuted && (
+                          <div className="flex items-center gap-1 bg-yellow-100 px-2.5 py-1 rounded text-xs text-yellow-700 font-medium">
+                            <Clock className="w-3 h-3" />
+                            Pending Signature
+                          </div>
+                        )}
+
+                        {/* Alerts indicator */}
+                        {hasAlerts && (
+                          <div className="flex items-center gap-1 bg-red-100 px-2.5 py-1 rounded text-xs text-red-700 font-medium">
+                            <AlertTriangle className="w-3 h-3" />
+                            Alert
+                          </div>
+                        )}
                       </div>
+                    </div>
 
-                      {/* Signature Status */}
-                      <div
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium ${
-                          agreement.signatureStatus === 'fully-executed'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                      >
-                        <CheckCircle className="w-3 h-3" />
-                        {agreement.signatureStatus === 'fully-executed' ? 'Executed' : 'Pending'}
-                      </div>
-
-                      {/* Alerts indicator */}
-                      {hasAlerts && (
-                        <div className="flex items-center gap-1 bg-red-100 px-2.5 py-1 rounded text-xs text-red-700 font-medium">
-                          <Bell className="w-3 h-3" />
-                          Alert
-                        </div>
-                      )}
+                    <div className="flex-shrink-0 text-right">
+                      <p className="text-xs text-gray-500">
+                        Added: {formatDate(agreement.uploadDate)}
+                      </p>
                     </div>
                   </div>
-
-                  <div className="flex-shrink-0 text-right">
-                    <Badge variant={typeColor as any} size="sm">
-                      {getAgreementTypeLabel(agreement.type)}
-                    </Badge>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Effective: {formatDate(agreement.effectiveDate)}
-                    </p>
-                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p>No agreements yet</p>
+            {onNewAgreement && (
+              <button
+                onClick={onNewAgreement}
+                className="mt-3 text-indigo-600 hover:text-indigo-700 font-medium"
+              >
+                Create your first agreement
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -149,6 +149,7 @@ export function getAgreementStatusLabel(status: AgreementStatus): string {
     active: 'Active',
     expired: 'Expired',
     draft: 'Draft',
+    terminated: 'Terminated',
   };
   return labels[status];
 }
@@ -164,6 +165,7 @@ export function getAgreementStatusColor(status: AgreementStatus): string {
     active: 'green',
     expired: 'red',
     draft: 'gray',
+    terminated: 'gray',
   };
   return colors[status];
 }
