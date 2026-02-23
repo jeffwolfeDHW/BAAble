@@ -208,7 +208,7 @@ const BAAbleApp: React.FC = () => {
  */
 const App: React.FC = () => {
   return (
-    <BrowserRouter basename="/BAAble">
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
       <AuthProvider>
         <Toaster
           position="top-right"
